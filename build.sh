@@ -1,118 +1,293 @@
-#!/usr/bin/env bash
-# shellcheck disable=SC2199
-# shellcheck source=/dev/null
+#! /bin/bash
+# shellcheck disable=SC2154
+
+# Script For Building Android arm64 Kernel
 #
-# Copyright (C) 2020-22 UtsavBalar1231 <utsavbalar1231@gmail.com>
+# Copyright (c) 2018-2021 Panchajanya1999 <rsk52959@gmail.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-if ! [ -d "$HOME/tc/aosp-clang" ]; then
-echo "aosp clang not found! Cloning..."
-if ! git clone -q https://gitlab.com/ThankYouMario/android_prebuilts_clang-standalone.git --depth=1 ~/tc/aosp-clang; then
-echo "Cloning failed! Aborting..."
-exit 1
-fi
-fi
-
-if ! [ -d "$HOME/tc/aarch64-linux-android-4.9" ]; then
-echo "aarch64-linux-android-4.9 not found! Cloning..."
-if ! git clone -q https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git --depth=1 --single-branch ~/tc/aarch64-linux-android-4.9; then
-echo "Cloning failed! Aborting..."
-exit 1
-fi
-fi
-
-GCC_64_DIR="$HOME/tc/aarch64-linux-android-4.9"
-KBUILD_COMPILER_STRING=$($HOME/tc/aosp-clang/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')
-KBUILD_LINKER_STRING=$($HOME/tc/aosp-clang/bin/ld.lld --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//' | sed 's/(compatible with [^)]*)//')
-export KBUILD_COMPILER_STRING
-export KBUILD_LINKER_STRING
-
 #
-# Enviromental Variables
-#
+#change which one you want to use (default aosp)
+CLANG=aosp
+#Clone AnyKernel
+        if [ -d AnyKernel3 ]; then
+		  	rm -rf AnyKernel3 && git clone https://github.com/ashutoshchettri/AnyKernel3 AnyKernel3
+		else
+          	git clone https://github.com/ashutoshchettri/AnyKernel3 AnyKernel3
+		fi
 
-DATE=$(date '+%Y%m%d-%H%M')
+#clang
+echo "cloning clang"
+		if [ "${CLANG}" = "proton" ]; then
+			echo "proton"
+				git clone --depth=1  https://github.com/kdrag0n/proton-clang.git clang
+        		elif [ "${CLANG}" = "sd" ]; then
+        	echo "sd"
+				git clone --depth=1 https://gitlab.com/VoidUI/snapdragon-clang.git -b aosp-13 clang
+		elif [ "${CLANG}" = "pre" ]; then
+			echo "pre"
+				git clone --depth=1 https://gitlab.com/jjpprrrr/prelude-clang.git clang
+		elif [ "${CLANG}" = "weebx" ]; then
+			echo "weebx"
+		    	git clone https://gitlab.com/GhosutoX/weebx-clang16.git clang
+		elif [ "${CLANG}" = "aosp" ]; then
+			echo "aosp"
+		    	git clone --depth=1 https://gitlab.com/GhosutoX/aosp-clang-17.git -b 17.1 clang
+    	elif [ "${CLANG}" = "zyc17" ]; then
+        	echo "zyc"
+		    	mkdir clang && cd clang
+			    	wget https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-lastbuild.txt
+			    	V="$(cat Clang-main-lastbuild.txt)"
+            		wget -q https://github.com/ZyCromerZ/Clang/releases/download/17.0.0-$V-release/Clang-17.0.0-$V.tar.gz
+	        	tar -xf Clang-17.0.0-$V.tar.gz
+	        	cd ..
+		elif [ "${CLANG}" = "sa" ]; then
+			echo "sa"
+				git clone --depth=1 https://gitlab.com/Eidoron1/sa-clang.git -b master clang
+		elif [ "${CLANG}" = "neutron" ]; then
+			echo "neutron"
+				git clone --depth=1 https://gitlab.com/Eidoron1/clang-neutron.git -b 17 clang
+			fi
+##------------------------------------------------------##
 
-# Set our directory
-OUT_DIR=out/
+#Kernel building script
+# debug
+set -x
 
-VERSION="SurgeX-munch-${DATE}"
+# Bail out if script fails
+set -e
 
-# Export Zip name
-export ZIPNAME="${VERSION}.zip"
+# Function to show an informational message
+msg() {
+	echo
+	echo -e "\e[1;32m$*\e[0m"
+	echo
+}
 
-# How much kebabs we need? Kanged from @raphielscape :)
-if [[ -z "${KEBABS}" ]]; then
-    COUNT="$(grep -c '^processor' /proc/cpuinfo)"
-    export KEBABS="$((COUNT + 2))"
+err() {
+	echo -e "\e[1;41m$*\e[0m"
+	exit 1
+}
+
+cdir() {
+	cd "$1" 2>/dev/null || \
+		err "The directory $1 doesn't exists !"
+}
+
+##------------------------------------------------------##
+##----------Basic Informations, COMPULSORY--------------##
+
+# The defult directory where the kernel should be placed
+KERNEL_DIR="$(pwd)"
+BASEDIR="$(basename "$KERNEL_DIR")"
+
+# Set if compiler toolchain is not in $PATH
+BUILDTOOLS_PREFIX=$(pwd)/clang
+PATH="${BUILDTOOLD_PREFIX}/bin:${PATH}"
+#ln -sf "${BUILDTOOLS_PREFIX}" "$(pwd)/clang-llvm"
+
+# The name of the Kernel, to name the ZIP
+ZIPNAME="Zenith-AOSP"
+
+# Build Author
+# Take care, it should be a universal and most probably, case-sensitive
+AUTHOR="Viper"
+
+# Architecture
+ARCH=arm64
+
+# The name of the device for which the kernel is built
+MODEL="Poco F3"
+
+# The codename of the device
+DEVICE="alioth"
+
+# The defconfig which should be used. Get it from config.gz from
+# your device or check source
+if [ "${DEVICE}" = "alioth" ]; then
+DEFCONFIG=vendor/zenith_defconfig
+MODEL="Poco F3"
+elif [ "${DEVICE}" = "alioth2" ]; then
+DEFCONFIG=zenith_defconfig
+MODEL="Poco F3"
 fi
 
-echo "Jobs: ${KEBABS}"
+# Specify compiler. 
+# 'clang' or 'gcc'
+COMPILER=clang
 
-ARGS="ARCH=arm64 \
-O=${OUT_DIR} \
-CC=clang \
-LLVM=1 \
-LLVM_IAS=1 \
-CLANG_TRIPLE=aarch64-linux-gnu- \
-CROSS_COMPILE=$GCC_64_DIR/bin/aarch64-linux-android- \
--j${KEBABS}"
+# Build modules. 0 = NO | 1 = YES
+MODULES=0
 
-dts_source=arch/arm64/boot/dts/vendor/qcom
+# Specify linker.
+# 'ld.lld'(default)
+LINKER=ld.lld
 
-START=$(date +"%s")
+# Clean source prior building. 1 is NO(default) | 0 is YES
+INCREMENTAL=0
 
-# Set compiler Path
-export PATH="$HOME/tc/aosp-clang/bin:$PATH"
-export LD_LIBRARY_PATH=${HOME}/tc/aosp-clang/lib64:$LD_LIBRARY_PATH
+# Generate a full DEFCONFIG prior building. 1 is YES | 0 is NO(default)
+DEF_REG=0
 
-echo "------ Starting Compilation ------"
+# Files/artifacts
+FILES=Image
 
-# Make defconfig
-make -j${KEBABS} ${ARGS} vendor/munch_defconfig
+# Build dtbo.img (select this only if your source has support to building dtbo.img)
+# 1 is YES | 0 is NO(default)
+BUILD_DTBO=1
+	if [ $BUILD_DTBO = 1 ]
+	then 
+		# Set this to your dtbo path. 
+		# Defaults in folder out/arch/arm64/boot/dts
+		DTBO_PATH="out/arch/arm64/boot/dts/vendor/qcom"
+	fi
 
-# Make olddefconfig
-cd ${OUT_DIR} || exit
-make -j${KEBABS} ${ARGS} CC="ccache clang" HOSTCC="ccache gcc" HOSTCXX="cache g++" olddefconfig
-cd ../ || exit
+# Verbose build
+# 0 is Quiet(default)) | 1 is verbose | 2 gives reason for rebuilding targets
+VERBOSE=0
 
-make -j${KEBABS} ${ARGS} CC="ccache clang" HOSTCC="ccache gcc" HOSTCXX="ccache g++" 2>&1 | tee build.log
+# Debug purpose. Send logs on every successfull builds
+# 1 is YES | 0 is NO(default)
+LOG_DEBUG=0
 
-find ${OUT_DIR}/$dts_source -name '*.dtb' -exec cat {} + >${OUT_DIR}/arch/arm64/boot/dtb
+##------------------------------------------------------##
+##---------Do Not Touch Anything Beyond This------------##
 
-git checkout arch/arm64/boot/dts/vendor &>/dev/null
+# Check if we are using a dedicated CI ( Continuous Integration ), and
+# set KBUILD_BUILD_VERSION and KBUILD_BUILD_HOST and CI_BRANCH
 
-echo "------ Finishing Build ------"
+## Set defaults first
 
-END=$(date +"%s")
-DIFF=$((END - START))
-zipname="$VERSION.zip"
-if [ -f "out/arch/arm64/boot/Image" ] && [ -f "out/arch/arm64/boot/dtbo.img" ] && [ -f "out/arch/arm64/boot/dtb" ]; then
-	git clone -q https://github.com/madmax7896/AnyKernel3.git -b munch
-	cp out/arch/arm64/boot/Image AnyKernel3
-	cp out/arch/arm64/boot/dtb AnyKernel3
-	cp out/arch/arm64/boot/dtbo.img AnyKernel3
-	rm -f *zip
-	cd AnyKernel3
-	zip -r9 "../${zipname}" * -x '*.git*' README.md *placeholder >> /dev/null
-	cd ..
-	rm -rf AnyKernel3
-	echo -e "\nCompleted in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !"
-	echo ""
-	echo -e ${zipname} " is ready!"
-	echo ""
-        curl --upload-file ${zipname} https://free.keep.sh
-else
-	echo -e "\n Compilation Failed!"
-fi
+
+
+# shellcheck source=/etc/os-release
+DISTRO=$(source /etc/os-release && echo "${NAME}")
+KBUILD_BUILD_HOST=ArchLinux
+TERM=xterm
+export KBUILD_BUILD_HOST CI_BRANCH TERM
+
+#Check Kernel Version
+KERVER=$(make kernelversion)
+
+# Set a commit head
+COMMIT_HEAD=$(git log --oneline -1)
+
+# Set Date 
+DATE=$(TZ=CET date +"%Y%m%d")
+
+#Now Its time for other stuffs like cloning, exporting, etc
+
+ clone() {
+	echo " "
+
+	#if [ $COMPILER = "clang" ]
+	#then
+#		msg "|| Cloning Clang-14 ||"
+#		TC_DIR=$KERNEL_DIR/clang-llvm
+#	fi
+}
+
+##------------------------------------------------------##
+
+exports() {
+	KBUILD_BUILD_USER=$AUTHOR
+	SUBARCH=$ARCH
+
+		KBUILD_COMPILER_STRING=$(${BUILDTOOLS_PREFIX}/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')
+		PATH=$BUILDTOOLS_PREFIX/bin/:$PATH
+
+	PROCS=$(nproc --all)
+
+	export KBUILD_BUILD_USER ARCH SUBARCH PATH \
+		KBUILD_COMPILER_STRING PROCS
+}
+
+##---------------------------------------------------------##
+
+build_kernel() {
+	if [ $INCREMENTAL = 0 ]
+	then
+		msg "|| Cleaning Sources ||"
+		make clean && rm -rf out
+		git restore drivers/input/touchscreen/focaltech_touch/include/firmware/fw_sample.i drivers/input/touchscreen/focaltech_spi/include/firmware/fw_ft3658_k11.i drivers/input/touchscreen/focaltech_spi/include/firmware/fw_sample.i drivers/input/touchscreen/focaltech_touch/include/firmware/fw_ft3518_j11.i drivers/input/touchscreen/focaltech_touch/include/firmware/fw_sample.i drivers/input/touchscreen/focaltech_touch/include/pramboot/FT8719_Pramboot_V0.5_20171221.i
+	fi
+
+
+	BUILD_START=$(date +"%s")
+
+
+  MAKE+=(
+	  CROSS_COMPILE=aarch64-linux-gnu- \
+		CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+		CC=${BUILDTOOLS_PREFIX}/bin/clang \
+		AR=${BUILDTOOLS_PREFIX}/bin/llvm-ar \
+		AS=${BUILDTOOLS_PREFIX}/bin/llvm-as \
+		OBJDUMP=${BUILDTOOLS_PREFIX}/bin/llvm-objdump \
+		STRIP=${BUILDTOOLS_PREFIX}/bin/llvm-strip \
+		NM=${BUILDTOOLS_PREFIX}/bin/llvm-nm \
+		OBJCOPY=${BUILDTOOLS_PREFIX}/bin/llvm-objcopy \
+		LD=${BUILDTOOLS_PREFIX}/bin/${LINKER} \
+		LLVM=1 \
+		LLVM_IAS=1
+  )
+
+	make O=out "${MAKE[@]}" $DEFCONFIG
+
+	msg "|| Started Compilation ||"
+	make -kj"$PROCS" O=out \
+		V=$VERBOSE \
+		"${MAKE[@]}" 2>&1 | tee error.log
+	if [ $MODULES = "1" ]
+	then
+	    msg "|| Started Compiling Modules ||"
+	    make -j"$PROCS" O=out \
+		 "${MAKE[@]}" modules_prepare
+	    make -j"$PROCS" O=out \
+		 "${MAKE[@]}" modules INSTALL_MOD_PATH="$KERNEL_DIR"/out/modules
+	    make -j"$PROCS" O=out \
+		 "${MAKE[@]}" modules_install INSTALL_MOD_PATH="$KERNEL_DIR"/out/modules
+	    find "$KERNEL_DIR"/out/modules -type f -iname '*.ko' -exec cp {} AnyKernel3/modules/system/lib/modules/ \;
+	fi
+
+		BUILD_END=$(date +"%s")
+		DIFF=$((BUILD_END - BUILD_START))
+
+		if [ -f "$KERNEL_DIR"/out/arch/arm64/boot/$FILES ]
+		then
+			msg "|| Kernel successfully compiled ||"
+				gen_zip
+		fi
+
+}
+
+##--------------------------------------------------------------##
+
+gen_zip() {
+	msg "|| Zipping into a flashable zip ||"
+	mv "$KERNEL_DIR"/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+	mv "$KERNEL_DIR"/out/arch/arm64/boot/dtb AnyKernel3/dtb
+	if [ $BUILD_DTBO = 1 ]
+	then
+		mv "$KERNEL_DIR"/out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
+	fi
+	cdir AnyKernel3
+	zip -r $ZIPNAME-$DEVICE-"$DATE" . -x ".git*" -x "README.md" -x "*.zip"
+
+	## Prepare a final zip variable
+	ZIP_FINAL="$ZIPNAME-$DEVICE-$DATE"
+
+}
+
+clone
+exports
+build_kernel
